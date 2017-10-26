@@ -7,29 +7,6 @@ data Tile = Wall | Ground | Storage | Box | Blank
 data Direction = R | U | L | D deriving Show
 data Coord = C Integer Integer deriving Show
 
-handCol, hatCol, forheadCol, shirtCol, pantsCol :: Color
-hatCol     = RGBA 0.28 0.68 0.71 1
-forheadCol = RGBA 0.95 0.82 0.67 1
-handCol    = RGBA 0.93 0.82 0.01 1
-shirtCol   = RGBA 0.64 0.17 0.11 1
-pantsCol   = RGBA 0.30 0.25 0.15 1
-
-eye     = solidCircle 0.008 & colored white (solidCircle 0.08)
-eyes    = translated (-0.08) 0.15 eye & translated 0.08 0.15 eye
-mouth   = colored black (scaled 0.05 0.02 (arc pi (2*pi) 1))
-hatball = translated 0 0.4 (colored handCol (scaled 0.09 0.03 (solidCircle 1)))
-hat     = translated 0 0.25 (colored hatCol (scaled 0.32 0.15 (sector 0 pi 1)))
-forhead = translated 0 0.15 (colored forheadCol (scaled 0.35 0.25 (solidCircle 1)))
-hand    = colored handCol (scaled 0.06 0.08 (solidCircle 1))
-hands   = translated (-0.42) (-0.15) hand & translated 0.42 (-0.15) hand
-shirt   = translated 0 (-0.1) (colored shirtCol (scaled 0.45 0.25 (solidCircle 1)))
-boots   = translated (-0.18) (-0.4) (scaled 0.18 0.05 (sector 0 pi 1))
-        & translated 0.18 (-0.4) (scaled 0.18 0.05 (sector 0 pi 1))
-pants   = colored pantsCol (solidPolygon [(-0.35, -0.4), (0.35, -0.4), (0.43, (-0.1)), (-0.43, (-0.1))])
-
-player1 :: Picture
-player1 = eyes & mouth & hatball & hat & forhead & hands & shirt & boots & pants
-
 wallCol, groundCol, storageCol, boxCol, emptyCol :: Color
 wallCol    = RGBA 0.39 0.39 0.39 1
 groundCol  = RGBA 0.89 0.8  0.45 1
@@ -67,6 +44,31 @@ drawTileFromMaze i j = translated (fromIntegral i) (fromIntegral j)
 pictureOfMaze :: Picture
 pictureOfMaze = pictures([drawTileFromMaze i j | i <- [-10..10],
                                                  j <- [-10..10]])
+
+-- Stage 1.
+
+handCol, hatCol, forheadCol, shirtCol, pantsCol :: Color
+hatCol     = RGBA 0.28 0.68 0.71 1
+forheadCol = RGBA 0.95 0.82 0.67 1
+handCol    = RGBA 0.93 0.82 0.01 1
+shirtCol   = RGBA 0.64 0.17 0.11 1
+pantsCol   = RGBA 0.30 0.25 0.15 1
+
+eye     = solidCircle 0.008 & colored white (solidCircle 0.08)
+eyes    = translated (-0.08) 0.15 eye & translated 0.08 0.15 eye
+mouth   = colored black (scaled 0.05 0.02 (arc pi (2*pi) 1))
+hatball = translated 0 0.4 (colored handCol (scaled 0.09 0.03 (solidCircle 1)))
+hat     = translated 0 0.25 (colored hatCol (scaled 0.32 0.15 (sector 0 pi 1)))
+forhead = translated 0 0.15 (colored forheadCol (scaled 0.35 0.25 (solidCircle 1)))
+hand    = colored handCol (scaled 0.06 0.08 (solidCircle 1))
+hands   = translated (-0.42) (-0.15) hand & translated 0.42 (-0.15) hand
+shirt   = translated 0 (-0.1) (colored shirtCol (scaled 0.45 0.25 (solidCircle 1)))
+boots   = translated (-0.18) (-0.4) (scaled 0.18 0.05 (sector 0 pi 1))
+        & translated 0.18 (-0.4) (scaled 0.18 0.05 (sector 0 pi 1))
+pants   = colored pantsCol (solidPolygon [(-0.35, -0.4), (0.35, -0.4), (0.43, (-0.1)), (-0.43, (-0.1))])
+
+player1 :: Picture
+player1 = eyes & mouth & hatball & hat & forhead & hands & shirt & boots & pants
 
 initialCoord :: Coord
 initialCoord = C (-1) (-1)
@@ -114,7 +116,12 @@ drawState c = atCoord c player1 & pictureOfMaze
 walk1 :: IO ()
 walk1 = interactionOf initialCoord handleTime handleEvent drawState
 
+-- Stage 2.
+
 data Placement = P Coord Direction deriving Show
+
+mazeWrapper :: Placement -> Tile
+mazeWrapper (P (C i j) d) = maze (C i j)
 
 getRotation :: Direction -> Double
 getRotation d =
@@ -124,12 +131,14 @@ getRotation d =
     L -> 1
     D -> 2
 
-mazeWrapper :: Placement -> Tile
-mazeWrapper (P (C i j) d) = maze (C i j)
+player2 :: Direction -> Picture
+player2 d = (rotated ((getRotation d) * pi / 2) player1)
 
-atPlacement :: Placement -> Picture -> Picture
-atPlacement (P (C i j) d) p = translated (fromIntegral i) (fromIntegral j)
-                                      (rotated ((getRotation d) * pi / 2) p)
+initialPlacement :: Placement
+initialPlacement = P (C (-1) (-1)) U
+
+atPlacement :: Coord -> Picture -> Picture
+atPlacement (C i j) p = translated (fromIntegral i) (fromIntegral j) p
 
 adjacentPlacement :: Direction -> Placement -> Placement
 adjacentPlacement R (P (C i j) _) = P (C (i+1) j)    R
@@ -143,9 +152,6 @@ changePlacement d (P (C i j) _)
   | otherwise             = (P (C i j) d)
   where newC = adjacentPlacement d (P (C i j) d)
 
-initialPlacement :: Placement
-initialPlacement = P (C (-1) (-1)) U
-
 handleTime2 :: Double -> Placement -> Placement
 handleTime2 _ p = p
 
@@ -158,10 +164,12 @@ handleEvent2 (KeyPress key) p
 handleEvent2 _ p      = p
 
 drawState2 :: Placement -> Picture
-drawState2 p = atPlacement p player1 & pictureOfMaze
+drawState2 (P (C i j) d) = atPlacement (C i j) (player2 d) & pictureOfMaze
 
 walk2 :: IO ()
 walk2 = interactionOf initialPlacement handleTime2 handleEvent2 drawState2
+
+-- Stage 3.
 
 -- KeyRelease "Esc" doesn't seem to matter that much, but since we're handling
 -- KeyPresses it would be inappropriate to ignore KeyRelease (leading to bugs,
