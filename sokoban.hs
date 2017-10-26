@@ -4,7 +4,7 @@ import Data.Text
 import CodeWorld
 
 data Tile = Wall | Ground | Storage | Box | Blank
-data Direction = R | U | L | D
+data Direction = R | U | L | D deriving Show
 data Coord = C Integer Integer deriving Show
 
 handCol, hatCol, forheadCol, shirtCol, pantsCol :: Color
@@ -61,10 +61,12 @@ maze (C x y)
   | otherwise                = Ground
 
 drawTileFromMaze :: Integer -> Integer -> Picture
-drawTileFromMaze x y = translated (fromIntegral x) (fromIntegral y) (drawTile (maze (C x y)))
+drawTileFromMaze i j = translated (fromIntegral i) (fromIntegral j)
+                                  (drawTile (maze (C i j)))
 
 pictureOfMaze :: Picture
-pictureOfMaze = pictures([drawTileFromMaze x y | x <- [-10..10], y <- [-10..10]])
+pictureOfMaze = pictures([drawTileFromMaze i j | i <- [-10..10],
+                                                 j <- [-10..10]])
 
 initialCoord :: Coord
 initialCoord = C (-1) (-1)
@@ -111,3 +113,75 @@ drawState c = atCoord c player1 & pictureOfMaze
 
 walk1 :: IO ()
 walk1 = interactionOf initialCoord handleTime handleEvent drawState
+
+data Placement = P Coord Direction deriving Show
+
+getRotation :: Direction -> Double
+getRotation d =
+  case d of
+    R -> 3
+    U -> 0
+    L -> 1
+    D -> 2
+
+mazeWrapper :: Placement -> Tile
+mazeWrapper (P (C i j) d) = maze (C i j)
+
+atPlacement :: Placement -> Picture -> Picture
+atPlacement (P (C i j) d) p = translated (fromIntegral i) (fromIntegral j)
+                                      (rotated ((getRotation d) * pi / 2) p)
+
+adjacentPlacement :: Direction -> Placement -> Placement
+adjacentPlacement R (P (C i j) _) = P (C (i+1) j)    R
+adjacentPlacement U (P (C i j) _) = P (C  i   (j+1)) U
+adjacentPlacement L (P (C i j) _) = P (C (i-1) j)    L
+adjacentPlacement D (P (C i j) _) = P (C  i   (j-1)) D
+
+changePlacement :: Direction -> Placement -> Placement
+changePlacement d (P (C i j) _)
+  | freeCoord (mazeWrapper newC) = newC
+  | otherwise             = (P (C i j) d)
+  where newC = adjacentPlacement d (P (C i j) d)
+
+initialPlacement :: Placement
+initialPlacement = P (C (-1) (-1)) U
+
+handleTime2 :: Double -> Placement -> Placement
+handleTime2 _ p = p
+
+handleEvent2 :: Event -> Placement -> Placement
+handleEvent2 (KeyPress key) p
+    | key == "Right" = changePlacement R p
+    | key == "Up"    = changePlacement U p
+    | key == "Left"  = changePlacement L p
+    | key == "Down"  = changePlacement D p
+handleEvent2 _ p      = p
+
+drawState2 :: Placement -> Picture
+drawState2 p = atPlacement p player1 & pictureOfMaze
+
+walk2 :: IO ()
+walk2 = interactionOf initialPlacement handleTime2 handleEvent2 drawState2
+
+-- KeyRelease "Esc" doesn't seem to matter that much, but since we're handling
+-- KeyPresses it would be inappropriate to ignore KeyRelease (leading to bugs,
+-- somebody mistakenly using resettableInteractionOf and programming Esc on his
+-- own handler should see both of them not working, leaving one alone could be
+-- a cause of some weird interactions) so we should just ignore release of it
+handleEventOrReset :: world -> (Event -> world -> world) ->
+                      Event -> world -> world
+handleEventOrReset w f e c
+    | e == KeyPress "Esc"   = w
+    | e == KeyRelease "Esc" = c
+    | otherwise             = f e c
+
+resettableInteractionOf ::
+    world ->
+    (Double -> world -> world) ->
+    (Event -> world -> world) ->
+    (world -> Picture) ->
+    IO ()
+resettableInteractionOf w t e p = interactionOf w t (handleEventOrReset w e) p
+
+walk3 :: IO ()
+walk3 = resettableInteractionOf initialPlacement handleTime2 handleEvent2 drawState2
