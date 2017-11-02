@@ -1,25 +1,35 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Data.Text
 import CodeWorld
 
-data Tile = Wall | Ground | Storage | Box | Blank
-data Direction = R | U | L | D deriving Show
-data Coord = C Integer Integer deriving Show
+data Tile = Wall | Ground | Storage | Box | Blank deriving Eq
 
-wallCol, groundCol, storageCol, boxCol, emptyCol :: Color
+data Direction = R | U | L | D deriving Show
+data Coord = C Integer Integer deriving (Eq, Show)
+
+data State = S Coord Direction [Coord] deriving Show
+
+data SSState world = StartScreen | Running world
+
+data Interaction world = Interaction
+  world
+  (Double -> world -> world)
+  (Event -> world -> world)
+  (world -> Picture)
+
+type Maze = Coord -> Tile
+
+wallCol, groundCol, storageCol, boxCol :: Color
 wallCol    = RGBA 0.39 0.39 0.39 1
 groundCol  = RGBA 0.89 0.8  0.45 1
 storageCol = RGBA 1    0.39 0.39 1
 boxCol     = RGBA 0.56 0.2  0    1
-emptyCol   = white
 
-wall, ground, storage, box, empty :: Picture
+wall, ground, storage, box :: Picture
 wall    = colored wallCol    (solidRectangle 1 1)
 ground  = colored groundCol  (solidRectangle 1 1)
 storage = colored storageCol (solidCircle (0.3)) & ground
 box     = colored boxCol     (solidRectangle 1 1)
-empty   = colored emptyCol   (solidRectangle 1 1)
 
 drawTile :: Tile -> Picture
 drawTile Wall    = wall
@@ -28,7 +38,7 @@ drawTile Storage = storage
 drawTile Box     = box
 drawTile Blank   = blank
 
-maze :: Coord -> Tile
+maze :: Maze
 maze (C x y)
   | abs x > 4  || abs y > 4  = Blank
   | abs x == 4 || abs y == 4 = Wall
@@ -37,15 +47,13 @@ maze (C x y)
   | x >= -2 && y == 0        = Box
   | otherwise                = Ground
 
-drawTileFromMaze :: Integer -> Integer -> Picture
-drawTileFromMaze i j = translated (fromIntegral i) (fromIntegral j)
-                                  (drawTile (maze (C i j)))
+drawTileFromMaze :: Maze -> Integer -> Integer -> Picture
+drawTileFromMaze maze i j = translated (fromIntegral i) (fromIntegral j)
+                                       (drawTile (maze (C i j)))
 
-pictureOfMaze :: Picture
-pictureOfMaze = pictures([drawTileFromMaze i j | i <- [-10..10],
-                                                 j <- [-10..10]])
-
--- Stage 1.
+pictureOfMaze :: Maze -> Picture
+pictureOfMaze maze = pictures([drawTileFromMaze maze i j | i <- [-10..10],
+                                                           j <- [-10..10]])
 
 handCol, hatCol, forheadCol, shirtCol, pantsCol :: Color
 hatCol     = RGBA 0.28 0.68 0.71 1
@@ -54,6 +62,7 @@ handCol    = RGBA 0.93 0.82 0.01 1
 shirtCol   = RGBA 0.64 0.17 0.11 1
 pantsCol   = RGBA 0.30 0.25 0.15 1
 
+eye, eyes, mouth, hatball, hat, forhead, hand, hands, shirt, boots, pants :: Picture
 eye     = solidCircle 0.008 & colored white (solidCircle 0.08)
 eyes    = translated (-0.08) 0.15 eye & translated 0.08 0.15 eye
 mouth   = colored black (scaled 0.05 0.02 (arc pi (2*pi) 1))
@@ -67,26 +76,8 @@ boots   = translated (-0.18) (-0.4) (scaled 0.18 0.05 (sector 0 pi 1))
         & translated 0.18 (-0.4) (scaled 0.18 0.05 (sector 0 pi 1))
 pants   = colored pantsCol (solidPolygon [(-0.35, -0.4), (0.35, -0.4), (0.43, (-0.1)), (-0.43, (-0.1))])
 
-player1 :: Picture
-player1 = eyes & mouth & hatball & hat & forhead & hands & shirt & boots & pants
-
-initialCoord :: Coord
-initialCoord = C (-1) (-1)
-
-atCoord :: Coord -> Picture -> Picture
-atCoord (C i j) p = translated (fromIntegral i) (fromIntegral j) p
-
-adjacentCoord :: Direction -> Coord -> Coord
-adjacentCoord R (C i j) = C (i+1) j
-adjacentCoord U (C i j) = C  i   (j+1)
-adjacentCoord L (C i j) = C (i-1) j
-adjacentCoord D (C i j) = C  i   (j-1)
-
-changeCoord :: Direction -> Coord -> Coord
-changeCoord d (C i j)
-  | freeCoord (maze newC) = newC
-  | otherwise             = (C i j)
-  where newC = adjacentCoord d (C i j)
+playerPicture :: Picture
+playerPicture = eyes & mouth & hatball & hat & forhead & hands & shirt & boots & pants
 
 freeCoord :: Tile -> Bool
 freeCoord t =
@@ -95,101 +86,165 @@ freeCoord t =
     Storage -> True
     _       -> False
 
-moveCoords :: [Direction] -> Coord -> Coord
-moveCoords [] (C i j) = C i j
-moveCoords (x:xs) (C i j) = moveCoords xs (adjacentCoord x (C i j))
-
-handleTime :: Double -> Coord -> Coord
-handleTime _ c = c
-
-handleEvent :: Event -> Coord -> Coord
-handleEvent (KeyPress key) c
-    | key == "Right" = changeCoord R c
-    | key == "Up"    = changeCoord U c
-    | key == "Left"  = changeCoord L c
-    | key == "Down"  = changeCoord D c
-handleEvent _ c      = c
-
-drawState :: Coord -> Picture
-drawState c = atCoord c player1 & pictureOfMaze
-
-walk1 :: IO ()
-walk1 = interactionOf initialCoord handleTime handleEvent drawState
-
--- Stage 2.
-
-data Placement = P Coord Direction deriving Show
-
-mazeWrapper :: Placement -> Tile
-mazeWrapper (P (C i j) d) = maze (C i j)
+mazeWrapper :: State -> Tile
+mazeWrapper (S (C i j) _ boxes) = (updatedMaze boxes) (C i j)
 
 getRotation :: Direction -> Double
-getRotation d =
-  case d of
+getRotation dir =
+  case dir of
     R -> 3
     U -> 0
     L -> 1
     D -> 2
 
-player2 :: Direction -> Picture
-player2 d = (rotated ((getRotation d) * pi / 2) player1)
+player :: Direction -> Picture
+player dir = (rotated ((getRotation dir) * pi / 2) playerPicture)
 
-initialPlacement :: Placement
-initialPlacement = P (C (-1) (-1)) U
+initialState :: State
+initialState = S (C (-1) (-1)) U initialBoxes
 
-atPlacement :: Coord -> Picture -> Picture
-atPlacement (C i j) p = translated (fromIntegral i) (fromIntegral j) p
+atState :: Coord -> Picture -> Picture
+atState (C i j) p = translated (fromIntegral i) (fromIntegral j) p
 
-adjacentPlacement :: Direction -> Placement -> Placement
-adjacentPlacement R (P (C i j) _) = P (C (i+1) j)    R
-adjacentPlacement U (P (C i j) _) = P (C  i   (j+1)) U
-adjacentPlacement L (P (C i j) _) = P (C (i-1) j)    L
-adjacentPlacement D (P (C i j) _) = P (C  i   (j-1)) D
+adjacentCoord :: Direction -> Coord -> Coord
+adjacentCoord dir (C i j) =
+  case dir of
+    R -> C (i+1) j
+    U -> C  i   (j+1)
+    L -> C (i-1) j
+    D -> C  i   (j-1)
 
-changePlacement :: Direction -> Placement -> Placement
-changePlacement d (P (C i j) _)
-  | freeCoord (mazeWrapper newC) = newC
-  | otherwise             = (P (C i j) d)
-  where newC = adjacentPlacement d (P (C i j) d)
+adjacentState :: Direction -> State -> State
+adjacentState dir (S coord _ boxes) = S (adjacentCoord dir coord) dir boxes
 
-handleTime2 :: Double -> Placement -> Placement
-handleTime2 _ p = p
+changeState :: Direction -> State -> State
+changeState dir (S (C i j) _ boxes)
+  | freeCoord (mazeWrapper newState) = newState
+  | otherwise             = (S (C i j) dir boxes)
+  where newState = adjacentState dir (S (C i j) dir boxes)
 
-handleEvent2 :: Event -> Placement -> Placement
-handleEvent2 (KeyPress key) p
-    | key == "Right" = changePlacement R p
-    | key == "Up"    = changePlacement U p
-    | key == "Left"  = changePlacement L p
-    | key == "Down"  = changePlacement D p
-handleEvent2 _ p      = p
+handleTime :: Double -> State -> State
+handleTime _ p = p
 
-drawState2 :: Placement -> Picture
-drawState2 (P (C i j) d) = atPlacement (C i j) (player2 d) & pictureOfMaze
+handleEvent :: Event -> State -> State
+handleEvent (KeyPress key) p
+    | key == "Right" = changeState R p
+    | key == "Up"    = changeState U p
+    | key == "Left"  = changeState L p
+    | key == "Down"  = changeState D p
+handleEvent _ p      = p
 
-walk2 :: IO ()
-walk2 = interactionOf initialPlacement handleTime2 handleEvent2 drawState2
-
--- Stage 3.
-
--- KeyRelease "Esc" doesn't seem to matter that much, but since we're handling
--- KeyPresses it would be inappropriate to ignore KeyRelease (leading to bugs,
--- somebody mistakenly using resettableInteractionOf and programming Esc on his
--- own handler should see both of them not working, leaving one alone could be
--- a cause of some weird interactions) so we should just ignore release of it
 handleEventOrReset :: world -> (Event -> world -> world) ->
                       Event -> world -> world
 handleEventOrReset w f e c
-    | e == KeyPress "Esc"   = w
+    | e == KeyPress   "Esc" = w
     | e == KeyRelease "Esc" = c
     | otherwise             = f e c
 
-resettableInteractionOf ::
-    world ->
-    (Double -> world -> world) ->
-    (Event -> world -> world) ->
-    (world -> Picture) ->
-    IO ()
-resettableInteractionOf w t e p = interactionOf w t (handleEventOrReset w e) p
+startScreen :: Picture
+startScreen = scaled 3 3 (text "Sokoban!")
+
+resettable :: Interaction s -> Interaction s
+resettable (Interaction state0 step handle draw)
+  = Interaction state0 step handle' draw
+  where handle' (KeyPress key) _ | key == "Esc" = state0
+        handle' e s = handle e s
+
+withStartScreen :: Interaction s -> Interaction (SSState s)
+withStartScreen (Interaction state0 step handle draw)
+  = Interaction state0' step' handle' draw'
+  where
+    state0' = StartScreen
+
+    step' _ StartScreen = StartScreen
+    step' t (Running s) = Running (step t s)
+
+    handle' (KeyPress key) StartScreen
+         | key == " "                  = Running state0
+    handle' _              StartScreen = StartScreen
+    handle' e              (Running s) = Running (handle e s)
+
+    draw' StartScreen = startScreen
+    draw' (Running s) = draw s
+
+
+runInteraction :: Interaction s -> IO ()
+runInteraction (Interaction state0 step handle draw) = interactionOf state0 step handle draw
 
 walk3 :: IO ()
-walk3 = resettableInteractionOf initialPlacement handleTime2 handleEvent2 drawState2
+walk3 = runInteraction $ resettable $ Interaction initialState handleTime handleEvent draw
+
+walk4 :: IO ()
+walk4 = runInteraction $ resettable . withStartScreen $ Interaction initialState handleTime handleEvent draw
+
+replace :: Eq a => a -> a -> [a] -> [a]
+replace _ _ [] = []
+replace old new (x:xs)
+  | old == x  = new : rest
+  | otherwise = x   : rest
+  where rest = replace old new xs
+
+initialBoxes :: [Coord]
+initialBoxes = filter (\x -> maze x == Box) [(C i j) | i <- [-10..10], j <- [-10..10]]
+
+removeBoxes :: Maze -> Maze
+removeBoxes maze = f . maze where f = (\x -> if x == Box then Ground; else x)
+
+addBoxes :: [Coord] -> Maze -> Maze
+addBoxes boxes maze x
+  | elem x boxes = Box
+  | otherwise     = maze x
+
+updatedMaze :: [Coord] -> Maze
+updatedMaze boxes = addBoxes boxes (removeBoxes maze)
+
+drawBoxes :: [Coord] -> Picture
+drawBoxes [] = blank
+drawBoxes ((C i j):xs) = translated (fromIntegral i) (fromIntegral j) (drawTile Box)
+                       & drawBoxes (xs)
+
+moveBox :: Direction -> Coord -> State -> State
+moveBox dir boxCoord (S playerCoord _ boxes) = (S playerCoord dir newBoxes) where
+  newBoxes
+    | freeCoord ((updatedMaze boxes) newCoord) = replace boxCoord newCoord boxes
+    | otherwise                               = boxes
+  newCoord = adjacentCoord dir boxCoord
+
+adjacentStateWithBoxes :: Direction -> State -> State
+adjacentStateWithBoxes dir (S coord _ boxes) = adjacentState dir newState where
+  newState
+    | elem newCoord boxes = moveBox dir newCoord (S coord dir boxes)
+    | otherwise           = (S coord dir boxes)
+  newCoord = adjacentCoord dir coord
+
+changeStateWithBoxes :: Direction -> State -> State
+changeStateWithBoxes dir (S (C i j) _ boxes)
+  | freeCoord (mazeWrapper newState) = newState
+  | otherwise                        = (S (C i j) dir boxes)
+  where newState = adjacentStateWithBoxes dir (S (C i j) dir boxes)
+
+handleEventWithBoxes :: Event -> State -> State
+handleEventWithBoxes (KeyPress key) p
+  | key == "Right" = changeStateWithBoxes R p
+  | key == "Up"    = changeStateWithBoxes U p
+  | key == "Left"  = changeStateWithBoxes L p
+  | key == "Down"  = changeStateWithBoxes D p
+handleEventWithBoxes _ p = p
+
+isWinning :: State -> Bool
+isWinning (S _ _ boxes) = and (map (\x -> maze x == Storage) boxes)
+
+finishScreen :: Picture
+finishScreen = scaled 3 3 (text "Finished!")
+
+draw :: State -> Picture
+draw (S coord dir boxes)
+  | isWinning (S coord dir boxes) = finishScreen & world
+  | otherwise                     = world where
+    world = atState coord (player dir)
+          & (drawBoxes boxes)
+          & (pictureOfMaze (updatedMaze boxes))
+
+main :: IO ()
+main = runInteraction $ resettable . withStartScreen
+       $ Interaction initialState handleTime handleEventWithBoxes draw
