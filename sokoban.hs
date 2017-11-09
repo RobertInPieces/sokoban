@@ -92,7 +92,7 @@ player :: Direction -> Picture
 player dir = (rotated ((getRotation dir) * pi / 2) playerPicture)
 
 atState :: Coord -> Picture -> Picture
-atState (C i j) p = translated (fromIntegral i) (fromIntegral j) p
+atState (C i j) p = translated (-(fromIntegral i)) (-(fromIntegral j)) p
 
 
 freeCoord :: Tile -> Bool
@@ -173,7 +173,7 @@ data State = S Coord Direction [Coord] deriving Show
 
 -- Stage 2
 initialBoxes :: [Coord]
-initialBoxes = filter (\x -> maze x == Box) [(C i j) | i <- [-10..10], j <- [-10..10]]
+initialBoxes = [(C i j) | i <- [-10..10], j <- [-10..10], maze (C i j) == Box]
 
 initialStateWithBoxes :: State
 initialStateWithBoxes = S (C (-1) (-1)) U initialBoxes
@@ -200,9 +200,8 @@ draw :: State -> Picture
 draw (S coord dir boxes)
   | isWinning (S coord dir boxes) = finishScreen & world
   | otherwise                     = world
-  where world = atState coord (player dir)
-              & (drawBoxes boxes)
-              & (pictureOfMaze (mazeWrapper boxes))
+  where world = (player dir)
+              & (atState coord (pictureOfMaze (mazeWrapper boxes)))
 
 -- Stage 5
 updatedMaze :: [Coord] -> Maze
