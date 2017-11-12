@@ -1,3 +1,5 @@
+module Utils where
+
 import Data.List
 
 elemList :: Eq a => a -> [a] -> Bool

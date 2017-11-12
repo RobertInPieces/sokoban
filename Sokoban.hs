@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE LambdaCase #-}
 
 import CodeWorld
-
+import Data.Text (pack)
+import Utils
 
 data Tile = Wall | Ground | Storage | Box | Blank deriving Eq
 
@@ -10,9 +11,9 @@ data Direction = R | U | L | D deriving Show
 
 data Coord = C Integer Integer deriving (Eq, Show)
 
-type Maze = Coord -> Tile
+data Maze = Maze Coord (Coord -> Tile)
 
-data State = S Coord Direction [Coord] deriving Show
+data State = S Coord Direction Integer Integer [Coord] deriving Show
 
 data SSState world = StartScreen | Running world
 
@@ -65,8 +66,8 @@ drawTile Box     = box
 drawTile Blank   = blank
 
 tileFromMaze :: Maze -> Integer -> Integer -> Picture
-tileFromMaze maze i j = translated (fromIntegral i) (fromIntegral j)
-                                   (drawTile (maze (C i j)))
+tileFromMaze (Maze coord0 board) i j = translated (fromIntegral i) (fromIntegral j)
+                                       (drawTile (board (C i j)))
 
 pictureOfMaze :: Maze -> Picture
 pictureOfMaze maze = pictures([tileFromMaze maze i j | i <- [-10..10], j <- [-10..10]])
@@ -87,12 +88,26 @@ player dir = (rotated ((getRotation dir) * pi / 2) pictureOfPlayer) where
 startScreen :: Picture
 startScreen = scaled 3 3 (text "Sokoban!")
 
-finishScreen :: Picture
-finishScreen = scaled 3 3 (text "Finished!")
+finishScreen :: State -> Picture
+finishScreen state =
+  scaled 0.5 0.5 (text message) where
+    (S coord dir moves maze boxes) = state
+    message = pack messageText
+    messageText = "Poziom " ++ show maze ++ " ukończony, liczba ruchów: " ++ show moves
 
+mazes :: [Maze]
+mazes = replicate 1 myMaze
 
-maze :: Maze
-maze (C x y)
+badMazes :: [Maze]
+badMazes = replicate 1 myMaze
+
+allMazes :: [Maze]
+allMazes = mazes ++ badMazes
+
+myMaze :: Maze
+myMaze = Maze start map where
+ start = C (-3) 3
+ map (C x y)
   | abs x > 4  || abs y > 4  = Blank
   | abs x == 4 || abs y == 4 = Wall
   | x ==  2 && y <= 0        = Wall
@@ -101,19 +116,31 @@ maze (C x y)
   | otherwise                = Ground
 
 removeBoxes :: Maze -> Maze
-removeBoxes maze = f . maze where f = (\x -> if x == Box then Ground; else x)
+removeBoxes (Maze coord0 board) = (Maze coord0 newBoard) where
+  newBoard = f . board where f = (\case Box -> Ground; x -> x)
 
 addBoxes :: [Coord] -> Maze -> Maze
-addBoxes boxes maze x
-  | elem x boxes = Box
-  | otherwise    = maze x
+addBoxes boxes (Maze coord0 board) = (Maze coord0 newBoard) where
+  newBoard x
+    | elem x boxes = Box
+    | otherwise    = board x
 
-updatedMaze :: [Coord] -> Maze
-updatedMaze boxes = addBoxes boxes (removeBoxes maze)
+updatedMaze :: Maze -> [Coord] -> Maze
+updatedMaze maze boxes = addBoxes boxes (removeBoxes maze)
 
-mazeWrapper :: [Coord] -> Maze
-mazeWrapper []    = maze
-mazeWrapper boxes = updatedMaze boxes
+mazeFromIndex :: Integer -> Maze
+mazeFromIndex n = nth allMazes n
+
+boardFromIndex :: Integer -> Coord -> Tile
+boardFromIndex n = board where
+  Maze _ board = mazeFromIndex n
+
+mazeFromState :: State -> Maze
+mazeFromState (S _ _ _ maze boxes) = updatedMaze (mazeFromIndex maze) boxes
+
+boardFromState :: State -> Coord -> Tile
+boardFromState state = board where
+  Maze _ board = mazeFromState state
 
 
 replace :: Eq a => a -> a -> [a] -> [a]
@@ -138,57 +165,88 @@ adjacentCoord dir (C i j) =
     L -> C (i-1) j
     D -> C  i   (j-1)
 
+moveObject :: Direction -> Coord -> State -> State
+moveObject dir objCoord state@(S playerCoord _ moves maze boxes)
+  | spaceTaken = state
+  | otherwise  = case tile of Box    -> S playerCoord dir moves maze newBoxes
+                              Ground -> S newCoord dir moves maze boxes
+  where
+    spaceTaken = not (freeCoord tile)
+    newCoord = adjacentCoord dir objCoord
+    newBoxes = replace objCoord newCoord boxes
+    tile = (boardFromState state) newCoord
+
 changeState :: Direction -> State -> State
-changeState dir (S coord _ boxes) = S resultCoord dir boxes where
-  newCoord  = adjacentCoord dir coord
-  spaceFree = freeCoord ((mazeWrapper boxes) newCoord)
-  resultCoord
-    | spaceFree = newCoord
-    | otherwise = coord
+changeState dir state@(S coord _ moves maze boxes) =
+  S resultCoord dir moves maze boxes where
+    newCoord  = adjacentCoord dir coord
+    spaceFree = freeCoord ((boardFromState state) newCoord)
+    resultCoord
+      | spaceFree = newCoord
+      | otherwise = coord
 
 moveBox :: Direction -> Coord -> State -> State
-moveBox dir boxCoord (S playerCoord _ boxes) = (S playerCoord dir newBoxes) where
-  newCoord = adjacentCoord dir boxCoord
-  newBoxes
-    | freeCoord ((mazeWrapper boxes) newCoord) = replace boxCoord newCoord boxes
-    | otherwise                                = boxes
+moveBox dir boxCoord state@(S playerCoord _ moves maze boxes) =
+  (S playerCoord dir moves maze newBoxes) where
+    newCoord = adjacentCoord dir boxCoord
+    spaceFree = freeCoord ((boardFromState state) newCoord)
+    newBoxes
+      | spaceFree = replace boxCoord newCoord boxes
+      | otherwise = boxes
 
 changeStateAndMoveBox :: Direction -> State -> State
-changeStateAndMoveBox dir (S coord _ boxes) = changeState dir newState where
-  newCoord = adjacentCoord dir coord
-  newState
-    | elem newCoord boxes = moveBox dir newCoord (S coord dir boxes)
-    | otherwise           = (S coord dir boxes)
+changeStateAndMoveBox dir (S coord _ moves maze boxes) =
+  changeState dir newState where
+    newCoord = adjacentCoord dir coord
+    newState
+      | elem newCoord boxes = moveBox dir newCoord (S coord dir moves maze boxes)
+      | otherwise           = (S coord dir moves maze boxes)
 
 
-initialBoxes :: [Coord]
-initialBoxes = [(C i j) | i <- [-10..10], j <- [-10..10], maze (C i j) == Box]
+initialBoxes :: Maze -> [Coord]
+initialBoxes (Maze coord0 board) =
+  [(C i j) | i <- [-10..10], j <- [-10..10], board (C i j) == Box]
 
 initialState :: State
-initialState = S (C (-1) (-1)) U initialBoxes
+initialState = S coord0 U 0 initIndex (initialBoxes initMaze)
+  where
+    initIndex = 1
+    initMaze = mazeFromIndex initIndex
+    Maze coord0 _ = initMaze
 
 handleTime :: Double -> State -> State
-handleTime _ p = p
+handleTime _ state = state
 
 handleEvent :: Event -> State -> State
-handleEvent (KeyPress key) p
-  | key == "Right" = changeStateAndMoveBox R p
-  | key == "Up"    = changeStateAndMoveBox U p
-  | key == "Left"  = changeStateAndMoveBox L p
-  | key == "Down"  = changeStateAndMoveBox D p
-handleEvent _ p = p
+handleEvent (KeyPress key) (S coord dir moves maze boxes)
+  | isWinning state =
+    if key == " " then
+      let newMaze = mazeFromIndex (maze + 1)
+          (Maze coord0 board) = newMaze
+          newBoxes = initialBoxes newMaze
+      in (S coord0 U 0 (maze + 1) newBoxes)
+    else
+      state
+  | key == "Right" = changeStateAndMoveBox R state
+  | key == "Up"    = changeStateAndMoveBox U state
+  | key == "Left"  = changeStateAndMoveBox L state
+  | key == "Down"  = changeStateAndMoveBox D state
+  where
+    state = (S coord dir incMoves maze boxes)
+    incMoves = moves + 1
+handleEvent _ s = s
 
 
 isWinning :: State -> Bool
-isWinning (S _ _ boxes) = (not (null boxes)) &&
- (and (map (\x -> maze x == Storage) boxes))
+isWinning state@(S _ _ _ maze boxes) = (not (null boxes)) &&
+ (and (map (\x -> (boardFromIndex maze) x == Storage) boxes))
 
 draw :: State -> Picture
-draw (S coord dir boxes)
-  | isWinning (S coord dir boxes) = finishScreen & world
-  | otherwise                     = world
+draw state@(S coord dir moves _ _)
+  | isWinning state = finishScreen state
+  | otherwise       = world
   where world = (player dir)
-              & (atState coord (pictureOfMaze (mazeWrapper boxes)))
+              & (atState coord (pictureOfMaze (mazeFromState state)))
 
 
 resettable :: Interaction s -> Interaction s
