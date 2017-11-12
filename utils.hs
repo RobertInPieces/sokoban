@@ -55,7 +55,7 @@ isGraphClosed initial neighbours isOk =
 
 reachable :: Eq a => a -> a -> (a -> [a]) -> Bool
 reachable v initial neighbours =
-  not (allGraph (\x -> x /= v) initial neighbours)
+  not (allGraph (/=v) initial neighbours)
 
 allReachable :: Eq a => [a] -> a -> (a -> [a]) -> Bool
 allReachable vs initial neighbours =
