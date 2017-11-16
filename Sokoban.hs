@@ -2,20 +2,17 @@
 {-# LANGUAGE LambdaCase #-}
 
 import CodeWorld
+import Data.List
 import Data.Text (pack)
+import Mazes
 import Utils
 
-data Tile = Wall | Ground | Storage | Box | Blank deriving Eq
 
-data Direction = R | U | L | D deriving Show
+data State = S Coord Direction Integer Integer [Coord] deriving (Eq, Show)
 
-data Coord = C Integer Integer deriving (Eq, Show)
+data SSState world = StartScreen | Running world deriving Eq
 
-data Maze = Maze Coord (Coord -> Tile)
-
-data State = S Coord Direction Integer Integer [Coord] deriving Show
-
-data SSState world = StartScreen | Running world
+data WithUndo a = WithUndo a [a]
 
 data Interaction world = Interaction
   world
@@ -41,7 +38,7 @@ wall, ground, storage, box :: Picture
 wall    = colored wallCol    (solidRectangle 1 1)
 ground  = colored groundCol  (solidRectangle 1 1)
 storage = colored storageCol (solidCircle (0.3)) & ground
-box     = colored boxCol     (solidRectangle 1 1)
+box     = colored boxCol     (solidRectangle 0.8 0.8) & ground
 
 eye, eyes, mouth, hatball, hat, forhead, hand, hands, shirt, boots, pants :: Picture
 eye     = solidCircle 0.008 & colored white (solidCircle 0.08)
@@ -70,13 +67,13 @@ tileFromMaze (Maze coord0 board) i j = translated (fromIntegral i) (fromIntegral
                                        (drawTile (board (C i j)))
 
 pictureOfMaze :: Maze -> Picture
-pictureOfMaze maze = pictures([tileFromMaze maze i j | i <- [-10..10], j <- [-10..10]])
+pictureOfMaze maze = pictures([tileFromMaze maze i j | i <- maxRange, j <- maxRange])
 
 atState :: Coord -> Picture -> Picture
 atState (C i j) p = translated (-(fromIntegral i)) (-(fromIntegral j)) p
 
 pictureOfPlayer :: Picture
-pictureOfPlayer = eyes & mouth & hatball & hat & forhead & hands & shirt & boots & pants
+pictureOfPlayer = scaled 0.8 0.8 (eyes & mouth & hatball & hat & forhead & hands & shirt & boots & pants)
 
 player :: Direction -> Picture
 player dir = (rotated ((getRotation dir) * pi / 2) pictureOfPlayer) where
@@ -95,25 +92,6 @@ finishScreen state =
     message = pack messageText
     messageText = "Poziom " ++ show maze ++ " ukończony, liczba ruchów: " ++ show moves
 
-mazes :: [Maze]
-mazes = replicate 1 myMaze
-
-badMazes :: [Maze]
-badMazes = replicate 1 myMaze
-
-allMazes :: [Maze]
-allMazes = mazes ++ badMazes
-
-myMaze :: Maze
-myMaze = Maze start map where
- start = C (-3) 3
- map (C x y)
-  | abs x > 4  || abs y > 4  = Blank
-  | abs x == 4 || abs y == 4 = Wall
-  | x ==  2 && y <= 0        = Wall
-  | x ==  3 && y <= 0        = Storage
-  | x >= -2 && y == 0        = Box
-  | otherwise                = Ground
 
 removeBoxes :: Maze -> Maze
 removeBoxes (Maze coord0 board) = (Maze coord0 newBoard) where
@@ -205,7 +183,7 @@ changeStateAndMoveBox dir (S coord _ moves maze boxes) =
 
 initialBoxes :: Maze -> [Coord]
 initialBoxes (Maze coord0 board) =
-  [(C i j) | i <- [-10..10], j <- [-10..10], board (C i j) == Box]
+  [(C i j) | i <- maxRange, j <- maxRange, board (C i j) == Box]
 
 initialState :: State
 initialState = S coord0 U 0 initIndex (initialBoxes initMaze)
@@ -235,7 +213,6 @@ handleEvent (KeyPress key) (S coord dir moves maze boxes)
     state = (S coord dir incMoves maze boxes)
     incMoves = moves + 1
 handleEvent _ s = s
-
 
 isWinning :: State -> Bool
 isWinning state@(S _ _ _ maze boxes) = (not (null boxes)) &&
@@ -272,11 +249,24 @@ withStartScreen (Interaction state0 step handle draw)
     draw' StartScreen = startScreen
     draw' (Running s) = draw s
 
+withUndo :: (Eq s) => Interaction s -> Interaction (WithUndo s)
+withUndo (Interaction state0 step handle draw) = Interaction state0' step' handle' draw' where
+    state0' = WithUndo state0 []
+    step' t (WithUndo s stack) = WithUndo (step t s) stack
+    handle' (KeyPress key) (WithUndo s stack) | key == "U"
+      = case stack of s':stack' -> WithUndo s' stack'
+                      []        -> WithUndo s []
+    handle' e              (WithUndo s stack)
+       | s' == s   = WithUndo s stack
+       | otherwise = WithUndo (handle e s) (s:stack)
+      where s' = handle e s
+    draw' (WithUndo s _) = draw s
+
 runInteraction :: Interaction s -> IO ()
 runInteraction (Interaction state0 step handle draw) =
   interactionOf state0 step handle draw
 
 
 main :: IO ()
-main = runInteraction $ resettable . withStartScreen
+main = runInteraction $ resettable . withStartScreen . withUndo
        $ Interaction initialState handleTime handleEvent draw
