@@ -297,14 +297,10 @@ isClosed (Maze coord0 board) = isStartingField &&
     nonBlank = (\x -> (board x) /= Blank)
 
 isSane :: Maze -> Bool
-isSane (Maze coord0 board) = numOfStorages >= numOfBoxes
+isSane maze = numOfStorages >= numOfBoxes
   where
-    numOfStorages = length (filterGraph isStorage coord0 neighbours doNotStop)
-    numOfBoxes    = length (filterGraph isBox coord0 neighbours doNotStop)
-    neighbours    = boardNeighbours board
-    isStorage     = (\x -> board x == Storage)
-    isBox         = (\x -> board x == Box)
-    doNotStop     = (\x -> False)
+    numOfStorages = length (allTiles maze Storage)
+    numOfBoxes    = length (allTiles maze Box)
 
 pictureOfBool :: Bool -> Bool -> Picture
 pictureOfBool closed sane = colored (boolColor closed) (sector 0 pi 0.4)
