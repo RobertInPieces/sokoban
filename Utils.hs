@@ -7,7 +7,9 @@ elemList _ []     = False
 elemList a (x:xs) = a == x || elemList a xs
 
 appendList :: [a] -> [a] -> [a]
-appendList a b = a ++ b
+appendList a [] = a
+appendList [] b = b
+appendList a b  = appendList (init a) ((last a):b)
 
 listLength :: [a] -> Integer
 listLength []     = 0
@@ -22,6 +24,11 @@ filterList cond (x:xs)
 nth :: [a] -> Integer -> a
 nth (x:xs) 1 = x
 nth (x:xs) n = nth xs (n-1)
+
+nthOrLast :: [a] -> Integer -> a
+nthOrLast [x]    _ = x
+nthOrLast (x:xs) 1 = x
+nthOrLast (x:xs) n = nthOrLast xs (n-1)
 
 mapList :: (a -> b) -> [a] -> [b]
 mapList _ []        = []
@@ -39,17 +46,24 @@ foldList :: (a -> b -> b) -> b -> [a] -> b
 foldList _ val []        = val
 foldList func val (x:xs) = foldList func (func x val) xs
 
-nodesToList :: Eq a => [a] -> [a] -> (a -> [a]) -> [a]
-nodesToList old [] _         = old
-nodesToList old curr getNext = nodesToList oldCurr new getNext where
-  oldCurr    = old ++ curr
-  removeOld  = filterList (\x -> not (elem x oldCurr))
-  simplify   = nub . concat
-  new        = removeOld (simplify (mapList getNext curr))
+nodesToList :: Eq a => [a] -> [a] -> (a -> [a]) -> (a -> Bool) -> [a]
+nodesToList old curr getNext stopCondition
+  | any stopCondition old = old
+  | curr == []            = old
+  | otherwise             = nodesToList oldCurr new getNext stopCondition where
+    oldCurr    = old ++ curr
+    removeOld  = filterList (\x -> not (elem x oldCurr))
+    simplify   = nub . concat
+    new        = removeOld (simplify (mapList getNext curr))
 
 allGraph :: Eq a => (a -> Bool) -> a -> (a -> [a]) -> Bool
 allGraph cond initial neighbours =
-  allList cond (nodesToList [] [initial] neighbours)
+  allList cond (nodesToList [] [initial] neighbours notCond) where
+    notCond = (\x -> not (cond x))
+
+filterGraph :: Eq a => (a -> Bool) -> a -> (a -> [a]) -> (a -> Bool) -> [a]
+filterGraph cond initial neighbours stopCondition =
+  filterList cond (nodesToList [] [initial] neighbours stopCondition)
 
 isGraphClosed :: Eq a => a -> (a -> [a]) -> (a -> Bool) -> Bool
 isGraphClosed initial neighbours isOk =
