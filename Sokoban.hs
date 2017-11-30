@@ -76,8 +76,7 @@ player = scaled 0.8 0.8 (eyes & mouth & hatball & hat & forhead & hands & shirt 
 
 
 startScreen :: Picture
-startScreen = translated 0 3 (scaled 3 3 (text "Sokoban"))
-            & translated 0 (-3) etap4
+startScreen = scaled 3 3 (text "Sokoban")
 
 finishScreen :: State -> Picture
 finishScreen state
@@ -121,14 +120,6 @@ boardFromState :: State -> Coord -> Tile
 boardFromState state = board
   where
     Maze _ board = mazeFromState state
-
-allTiles :: Maze -> Tile -> [Coord]
-allTiles (Maze coord0 board) tile =
-  filterGraph isTile coord0 neighbours doNotStop
-  where
-    neighbours = boardNeighbours board
-    isTile     = (\x -> board x == tile)
-    doNotStop  = (\_ -> False)
 
 
 replace :: Eq a => a -> a -> [a] -> [a]
@@ -209,6 +200,18 @@ handleEvent (KeyPress key) (S coord moves maze boxes)
     incMoves       = moves + 1
 handleEvent _ s = s
 
+boardNeighbours :: (Coord -> Tile) -> Coord -> [Coord]
+boardNeighbours board (C x y) = filter (\x -> not (elem (board x) [Blank, Wall]))
+[(C (x+1) y), (C x (y+1)), (C (x-1) y), (C x (y-1))]
+
+allTiles :: Maze -> Tile -> [Coord]
+allTiles (Maze coord0 board) tile =
+filterGraph isTile coord0 neighbours doNotStop
+where
+neighbours = boardNeighbours board
+isTile     = (\x -> board x == tile)
+doNotStop  = (\_ -> False)
+
 isWinning :: State -> Bool
 isWinning (S _ _ maze boxes) = (not (null availableBoxes)) &&
  (and (map (\x -> (boardFromIndex maze) x == Storage) availableBoxes))
@@ -267,53 +270,6 @@ runInteraction :: Interaction s -> IO ()
 runInteraction (Interaction state0 step handle draw) =
   interactionOf state0 step handle draw
 
-boardNeighbours :: (Coord -> Tile) -> Coord -> [Coord]
-boardNeighbours board (C x y) = filter (\x -> not (elem (board x) [Blank, Wall]))
-  [(C (x+1) y), (C x (y+1)), (C (x-1) y), (C x (y-1))]
-
-boardNeighboursNoWalls :: (Coord -> Tile) -> Coord -> [Coord]
-boardNeighboursNoWalls board (C x y) = filter ((/= Wall) . board)
-  [(C (x+1) y), (C x (y+1)), (C (x-1) y), (C x (y-1))]
-
-isClosed :: Maze -> Bool
-isClosed (Maze coord0 board) = isStartingField &&
-  isGraphClosed coord0 (boardNeighboursNoWalls board) nonBlank
-  where
-    isStartingField =  elem (board coord0) [Ground, Storage]
-    nonBlank = (/= Blank) . board
-
-isSane :: Maze -> Bool
-isSane maze = numOfStorages >= numOfBoxes
-  where
-    numOfStorages = length (allTiles maze Storage)
-    numOfBoxes    = length (allTiles maze Box)
-
-pictureOfBool :: Bool -> Bool -> Picture
-pictureOfBool closed sane = colored (boolColor closed) (sector 0 pi 0.4)
-                          & colored (boolColor sane) (sector pi (2 * pi) 0.4)
-  where
-    boolColor cond = if cond then green else red
-
-pictureOfBools :: [(Bool, Bool)] -> Picture
-pictureOfBools xs = translated (-fromIntegral k /2) (fromIntegral k) (go 0 xs)
-  where
-    n = length xs
-    k = findK 0 -- k is the integer square of n
-    findK i | i * i >= n = i
-            | otherwise  = findK (i+1)
-    go _ [] = blank
-    go i ((c, s):bs) =
-      translated (fromIntegral (i `mod` k))
-                 (-fromIntegral (i `div` k))
-                 (pictureOfBool c s)
-      & go (i+1) bs
-
-etap4 :: Picture
-etap4 = pictureOfBools (zip (map isClosed allMazes) (map isSane allMazes))
-
-etap5 :: IO ()
-etap5 = runInteraction $ resettable . withStartScreen . withUndo
-       $ Interaction initialState handleTime handleEvent draw
-
 main :: IO ()
-main = etap5
+main = runInteraction $ resettable . withStartScreen . withUndo
+       $ Interaction initialState handleTime handleEvent draw
