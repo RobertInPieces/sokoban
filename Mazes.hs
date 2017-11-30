@@ -4,9 +4,10 @@ data Maze = Maze Coord (Coord -> Tile)
 
 data Direction = R | U | L | D deriving (Eq, Show)
 data Coord = C Integer Integer deriving (Eq, Show)
-data Tile = Wall | Ground | Storage | Box | Blank deriving (Enum, Eq, Show)
+data Tile = Player | Wall | Ground | Storage | Box | Blank deriving (Enum, Eq, Show)
 
-maxRange = [-25..25]
+rowsRange = [12, 11 .. (-12)]
+colsRange = [-12 .. 12]
 
 mazes :: [Maze]
 mazes = [maze0, maze1, maze2, maze3, maze4]
