@@ -24,13 +24,15 @@ filterList cond (x:xs)
     rest = filterList cond xs
 
 nth :: [a] -> Integer -> a
-nth (x:xs) 1 = x
-nth (x:xs) n = nth xs (n-1)
+nth (x:_)  1 = x
+nth (_:xs) n = nth xs (n-1)
+nth _ _      = error "Index out of bonds"
 
 nthOrLast :: [a] -> Integer -> a
 nthOrLast [x]    _ = x
-nthOrLast (x:xs) 1 = x
-nthOrLast (x:xs) n = nthOrLast xs (n-1)
+nthOrLast (x:_)  1 = x
+nthOrLast (_:xs) n = nthOrLast xs (n-1)
+nthOrLast _      _ = error "Empty list"
 
 mapList :: (a -> b) -> [a] -> [b]
 mapList _ []        = []

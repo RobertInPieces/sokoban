@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 
 import CodeWorld
-import Data.List
 import Data.Text (pack)
 import Mazes
 import Utils
@@ -63,8 +62,8 @@ drawTile Box     = box
 drawTile Blank   = blank
 
 tileFromMaze :: Maze -> Integer -> Integer -> Picture
-tileFromMaze (Maze coord0 board) i j = translated (fromIntegral i) (fromIntegral j)
-                                       (drawTile (board (C i j)))
+tileFromMaze (Maze _ board) i j = translated (fromIntegral i) (fromIntegral j)
+                                             (drawTile (board (C i j)))
 
 pictureOfMaze :: Maze -> Picture
 pictureOfMaze maze = pictures([tileFromMaze maze i j | i <- maxRange, j <- maxRange])
@@ -86,21 +85,23 @@ finishScreen state
                     & translated 0 3 message
   | otherwise       = message
   where
-    (S coord moves maze boxes) = state
+    (S _ moves maze _) = state
     message = scaled 0.5 0.5 (text (pack messageText))
     messageText = "Poziom " ++ show maze ++ " ukończony, liczba ruchów: " ++ show moves
     gameFinished = maze == (listLength mazes)
     congrats = scaled 0.5 0.5 (text "Ukończyłeś wszystkie poziomy, brawo! Wciskając spację wrócisz do ostatniego poziomu")
 
 removeBoxes :: Maze -> Maze
-removeBoxes (Maze coord0 board) = (Maze coord0 newBoard) where
-  newBoard = f . board where f = (\case Box -> Ground; x -> x)
+removeBoxes (Maze coord0 board) = (Maze coord0 newBoard)
+  where
+    newBoard = f . board where f = (\case Box -> Ground; x -> x)
 
 addBoxes :: [Coord] -> Maze -> Maze
-addBoxes boxes (Maze coord0 board) = (Maze coord0 newBoard) where
-  newBoard x
-    | elem x boxes = Box
-    | otherwise    = board x
+addBoxes boxes (Maze coord0 board) = (Maze coord0 newBoard)
+  where
+    newBoard x
+      | elem x boxes = Box
+      | otherwise    = board x
 
 updatedMaze :: Maze -> [Coord] -> Maze
 updatedMaze maze boxes = addBoxes boxes (removeBoxes maze)
@@ -109,15 +110,17 @@ mazeFromIndex :: Integer -> Maze
 mazeFromIndex n = nthOrLast mazes n
 
 boardFromIndex :: Integer -> Coord -> Tile
-boardFromIndex n = board where
-  Maze _ board = mazeFromIndex n
+boardFromIndex n = board
+  where
+    Maze _ board = mazeFromIndex n
 
 mazeFromState :: State -> Maze
 mazeFromState (S _ _ maze boxes) = updatedMaze (mazeFromIndex maze) boxes
 
 boardFromState :: State -> Coord -> Tile
-boardFromState state = board where
-  Maze _ board = mazeFromState state
+boardFromState state = board
+  where
+    Maze _ board = mazeFromState state
 
 allTiles :: Maze -> Tile -> [Coord]
 allTiles (Maze coord0 board) tile =
@@ -125,7 +128,7 @@ allTiles (Maze coord0 board) tile =
   where
     neighbours = boardNeighbours board
     isTile     = (\x -> board x == tile)
-    doNotStop  = (\x -> False)
+    doNotStop  = (\_ -> False)
 
 
 replace :: Eq a => a -> a -> [a] -> [a]
@@ -133,7 +136,8 @@ replace _ _ [] = []
 replace old new (x:xs)
   | old == x  = new : rest
   | otherwise = x   : rest
-  where rest = replace old new xs
+  where
+    rest = replace old new xs
 
 freeCoord :: Tile -> Bool
 freeCoord t =
@@ -153,44 +157,28 @@ adjacentCoord dir (C i j) =
 moveObject :: Direction -> Coord -> State -> State
 moveObject dir objCoord state@(S playerCoord moves maze boxes)
   | spaceTaken = state
-  | otherwise  = case tile of Box    -> S playerCoord moves maze newBoxes
-                              Ground -> S newCoord moves maze boxes
+  | otherwise  = case oldTile of Box -> S playerCoord moves maze newBoxes
+                                 _   -> S newCoord moves maze boxes
   where
-    spaceTaken = not (freeCoord tile)
+    spaceTaken = not (freeCoord newTile)
     newCoord = adjacentCoord dir objCoord
     newBoxes = replace objCoord newCoord boxes
-    tile = (boardFromState state) newCoord
-
-changeState :: Direction -> State -> State
-changeState dir state@(S coord moves maze boxes) =
-  S resultCoord moves maze boxes where
-    newCoord  = adjacentCoord dir coord
-    spaceFree = freeCoord ((boardFromState state) newCoord)
-    resultCoord
-      | spaceFree = newCoord
-      | otherwise = coord
-
-moveBox :: Direction -> Coord -> State -> State
-moveBox dir boxCoord state@(S playerCoord moves maze boxes) =
-  (S playerCoord moves maze newBoxes) where
-    newCoord = adjacentCoord dir boxCoord
-    spaceFree = freeCoord ((boardFromState state) newCoord)
-    newBoxes
-      | spaceFree = replace boxCoord newCoord boxes
-      | otherwise = boxes
+    oldTile = (boardFromState state) objCoord
+    newTile = (boardFromState state) newCoord
 
 changeStateAndMoveBox :: Direction -> State -> State
 changeStateAndMoveBox dir (S coord moves maze boxes) =
-  changeState dir newState where
+  moveObject dir coord newState
+  where
     newPlayerState = (S coord moves maze boxes)
     newCoord = adjacentCoord dir coord
     newState
-      | elem newCoord boxes = moveBox dir newCoord newPlayerState
+      | elem newCoord boxes = moveObject dir newCoord newPlayerState
       | otherwise           = newPlayerState
 
 
 initialBoxes :: Maze -> [Coord]
-initialBoxes (Maze coord0 board) =
+initialBoxes (Maze _ board) =
   [(C i j) | i <- maxRange, j <- maxRange, board (C i j) == Box]
 
 initialState :: State
@@ -214,7 +202,7 @@ handleEvent (KeyPress key) (S coord moves maze boxes)
   where
     nextLevelState =
       let newMaze = mazeFromIndex (maze + 1)
-          (Maze coord0 board) = newMaze
+          (Maze coord0 _) = newMaze
           newBoxes = initialBoxes newMaze
       in (S coord0 0 (maze + 1) newBoxes)
     state          = (S coord incMoves maze boxes)
@@ -222,14 +210,14 @@ handleEvent (KeyPress key) (S coord moves maze boxes)
 handleEvent _ s = s
 
 isWinning :: State -> Bool
-isWinning state@(S _ _ maze boxes) = (not (null availableBoxes)) &&
+isWinning (S _ _ maze boxes) = (not (null availableBoxes)) &&
  (and (map (\x -> (boardFromIndex maze) x == Storage) availableBoxes))
   where
     currMaze = updatedMaze(mazeFromIndex maze) boxes
     availableBoxes = allTiles currMaze Box
 
 draw :: State -> Picture
-draw state@(S coord moves _ _)
+draw state@(S coord _ _ _)
   | isWinning state = finishScreen state
   | otherwise       = world
   where
@@ -239,8 +227,9 @@ draw state@(S coord moves _ _)
 resettable :: Interaction s -> Interaction s
 resettable (Interaction state0 step handle draw)
   = Interaction state0 step handle' draw
-  where handle' (KeyPress key) _ | key == "Esc" = state0
-        handle' e s = handle e s
+  where
+    handle' (KeyPress key) _ | key == "Esc" = state0
+    handle' e s = handle e s
 
 withStartScreen :: Interaction s -> Interaction (SSState s)
 withStartScreen (Interaction state0 step handle draw)
@@ -260,7 +249,8 @@ withStartScreen (Interaction state0 step handle draw)
     draw' (Running s) = draw s
 
 withUndo :: (Eq s) => Interaction s -> Interaction (WithUndo s)
-withUndo (Interaction state0 step handle draw) = Interaction state0' step' handle' draw' where
+withUndo (Interaction state0 step handle draw) = Interaction state0' step' handle' draw'
+  where
     state0' = WithUndo state0 []
     step' t (WithUndo s stack) = WithUndo (step t s) stack
     handle' (KeyPress key) (WithUndo s stack) | key == "U"
@@ -269,7 +259,8 @@ withUndo (Interaction state0 step handle draw) = Interaction state0' step' handl
     handle' e              (WithUndo s stack)
        | s' == s   = WithUndo s stack
        | otherwise = WithUndo (handle e s) (s:stack)
-      where s' = handle e s
+      where
+        s' = handle e s
     draw' (WithUndo s _) = draw s
 
 runInteraction :: Interaction s -> IO ()
@@ -305,16 +296,17 @@ pictureOfBool closed sane = colored (boolColor closed) (sector 0 pi 0.4)
 
 pictureOfBools :: [(Bool, Bool)] -> Picture
 pictureOfBools xs = translated (-fromIntegral k /2) (fromIntegral k) (go 0 xs)
-  where n = length xs
-        k = findK 0 -- k is the integer square of n
-        findK i | i * i >= n = i
-                | otherwise  = findK (i+1)
-        go _ [] = blank
-        go i ((c, s):bs) =
-          translated (fromIntegral (i `mod` k))
-                     (-fromIntegral (i `div` k))
-                     (pictureOfBool c s)
-          & go (i+1) bs
+  where
+    n = length xs
+    k = findK 0 -- k is the integer square of n
+    findK i | i * i >= n = i
+            | otherwise  = findK (i+1)
+    go _ [] = blank
+    go i ((c, s):bs) =
+      translated (fromIntegral (i `mod` k))
+                 (-fromIntegral (i `div` k))
+                 (pictureOfBool c s)
+      & go (i+1) bs
 
 etap4 :: Picture
 etap4 = pictureOfBools (zip (map isClosed allMazes) (map isSane allMazes))
