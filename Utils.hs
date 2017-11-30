@@ -9,17 +9,19 @@ elemList a (x:xs) = a == x || elemList a xs
 appendList :: [a] -> [a] -> [a]
 appendList a [] = a
 appendList [] b = b
-appendList a b  = appendList (init a) ((last a):b)
+appendList (x:xs) ys = x:appendList xs ys
 
 listLength :: [a] -> Integer
 listLength []     = 0
-listLength (x:xs) = 1 + listLength xs
+listLength (_:xs) = 1 + listLength xs
 
 filterList :: (a -> Bool) -> [a] -> [a]
 filterList _ [] = []
 filterList cond (x:xs)
-  | cond x    = [x] ++ filterList cond xs
-  | otherwise = filterList cond xs
+  | cond x    = x:rest
+  | otherwise = rest
+  where
+    rest = filterList cond xs
 
 nth :: [a] -> Integer -> a
 nth (x:xs) 1 = x
