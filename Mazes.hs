@@ -9,6 +9,8 @@ data Tile = Player | Wall | Ground | Storage | Box | Blank deriving (Enum, Eq, S
 rowsRange = [12, 11 .. (-12)]
 colsRange = [-12 .. 12]
 
+actionLetters = [' ', 'r', 'u', 'A', 'B', 'C', 'D', 'w', 's', 'a', 'd']
+
 mazes :: [Maze]
 mazes = [maze0, maze1, maze2, maze3, maze4]
 

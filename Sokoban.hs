@@ -2,15 +2,16 @@
 {-# LANGUAGE LambdaCase #-}
 
 import Data.List (intercalate)
-import Data.Text (pack)
-import Mazes
 import System.IO
+
+import Mazes
 import Utils
 
 
 data State = S Coord Integer Integer [Coord] deriving (Eq, Show)
 data Event = KeyPress String
 type Screen = String
+
 data Interaction world = Interaction
     world
     (Event -> world -> world)
@@ -150,10 +151,10 @@ handleEvent :: Event -> State -> State
 handleEvent (KeyPress key) (S coord moves maze boxes)
   | isWinning state =
     if key == " " then nextLevelState else state
-  | key == "d" = changeStateAndMoveBox R state
-  | key == "w" = changeStateAndMoveBox U state
-  | key == "a" = changeStateAndMoveBox L state
-  | key == "s" = changeStateAndMoveBox D state
+  | elem key ["C", "d"] = changeStateAndMoveBox R state
+  | elem key ["A", "w"] = changeStateAndMoveBox U state
+  | elem key ["D", "a"] = changeStateAndMoveBox L state
+  | elem key ["B", "s"] = changeStateAndMoveBox D state
   where
     nextLevelState =
       let newMaze = mazeFromIndex (maze + 1)
@@ -225,17 +226,21 @@ withUndo (Interaction state0 handle draw) = Interaction state0' handle' draw'
 
 runInteraction :: Interaction s -> IO ()
 runInteraction (Interaction state0 handle draw) = do
+  hSetBuffering stdin NoBuffering
   initial
   input <- getContents
   go state0 input
     where
-      initial      = putStr "\ESCc" >> putStrLn (draw state0)
-      go _ []      = putStr "\nEOF\n"
-      go s ('q':_) = putStr "\nQUIT\n"
-      go s (c:cs)  = putStr "\ESCc" >> putStrLn (draw nextState)
-                                    >> go nextState cs
+      initial       = putStr "\ESCc" >> putStrLn (draw state0)
+      go _ []       = putStr "\nEOF\n"
+      go s ('q':_)  = putStr "\nQUIT\n"
+      go s (c:cs)
+        | changing  = putStr "\ESCc" >> putStrLn (draw nextState)
+                    >> go nextState cs
+        | otherwise = go s cs
         where
-          nextState = handle (KeyPress [c]) s
+          changing  = elem c actionLetters
+          nextState = (handle (KeyPress [c]) s)
 
 
 main :: IO ()
